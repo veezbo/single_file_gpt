@@ -7,6 +7,7 @@ from torch.nn import functional as F
 from torch import Tensor
 from typing import Dict, Optional, Tuple
 
+
 # Hyperparameters
 SEED = 1337
 BATCH_SIZE = 12  # how many independent sequences will we process in parallel?
@@ -24,11 +25,11 @@ NUM_GENERATE_TOKENS = 5000
 # ------------
 torch.manual_seed(SEED)
 
+# Load input data (currently Shakespeare data from Karpathy's repo)
 if not os.path.exists('input.txt'):
     print("downloading data file from github")
     url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
     urllib.request.urlretrieve(url, 'input.txt')
-
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
@@ -49,7 +50,6 @@ train_data = data[:train_index]
 val_data = data[train_index:]
 
 
-# Data loading
 def get_batch(split: str) -> Tuple[Tensor, Tensor]:
     # Generate a small batch of data of inputs x and targets y
     data_to_sample = train_data if split == 'train' else val_data
@@ -77,12 +77,13 @@ def estimate_loss() -> Dict[str, Tensor]:
 
 
 class GPTLanguageModel(nn.Module):
+    """ A GPT language model from scratch """
 
     def __init__(self):
         super().__init__()
         # Each token directly reads off the embeddings for the next token from lookup table
         self.token_embedding_table = nn.Embedding(VOCAB_SIZE, EMBEDDING_DIM)
-        # Positional embeddings are learned for simplicity
+        # Positional embeddings are learnable parameters here for simplicity
         self.pos_embedding_table = nn.Embedding(BLOCK_SIZE, EMBEDDING_DIM)
         self.blocks = nn.Sequential(*[TransformerBlock(EMBEDDING_DIM, NUM_HEADS) for _ in range(NUM_TRANSFORMER_BLOCKS)])
         self.layer_norm_final = nn.LayerNorm(EMBEDDING_DIM)
@@ -93,10 +94,10 @@ class GPTLanguageModel(nn.Module):
         # targets (B, T)
         B, T = idx.shape
 
-        token_embs = self.token_embedding_table(idx)  # (B, T, C)
-        pos_embs = self.pos_embedding_table(torch.arange(T, device=DEVICE))  # (T, C)
-        embs = token_embs + pos_embs  # (B, T, C) + (T, C) broadcast
-        x = self.blocks(embs)  # (B, T, C)
+        token_embedding = self.token_embedding_table(idx)  # (B, T, C)
+        positional_embedding = self.pos_embedding_table(torch.arange(T, device=DEVICE))  # (T, C)
+        embedding = token_embedding + positional_embedding  # (B, T, C) + (T, C) broadcast
+        x = self.blocks(embedding)  # [(B, T, C) -> (B, T, C)] x NUM_TRANSFORMER_BLOCKS
         x = self.layer_norm_final(x)  # (B, T, C) @ (C, C) -> (B, T, C)  NOTE: Feed-forward is done separately for each token]: 
         logits = self.linear_model_head(x)  # (B, T, VOCAB_SIZE)
 
@@ -126,7 +127,7 @@ class GPTLanguageModel(nn.Module):
             # Apply softmax to get probabilities
             probs = F.softmax(logits, dim=-1)  # (B, C)
 
-            # Sample from the distribution stochastically
+            # Sample from the distribution stochastically using learned probability distribution
             idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
 
             # Append sampled index to the running sequence
@@ -180,8 +181,8 @@ class MultiHead(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         # B, T, C = x.shape
-        out = torch.cat([h(x) for h in self.heads], dim=-1)  # (B, T, HS * num_heads)
-        out = self.dropout(self.projection(out))
+        out = torch.cat([h(x) for h in self.heads], dim=-1)  # (B, T, HS * num_heads = C)
+        out = self.dropout(self.projection(out))  # (B, T, C) -> (B, T, C)
         return out
     
 
