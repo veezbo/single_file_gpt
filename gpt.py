@@ -68,8 +68,8 @@ def estimate_loss() -> Dict[str, Tensor]:
         calculated_losses = torch.zeros(EVAL_ITERS)
         for k in range(EVAL_ITERS):
             X, Y = get_batch(split)
-            _, loss_node = model(X, Y)
-            calculated_losses[k] = loss_node.item()
+            _, loss_node_i = model(X, Y)
+            calculated_losses[k] = loss_node_i.item()
         estimated_split_loss = calculated_losses.mean()
         out[split] = estimated_split_loss
     model.train()
@@ -242,9 +242,9 @@ try:
         xb, yb = get_batch('train')
 
         # Evaluate the loss
-        logits, loss = model(xb, yb)
+        _, loss_node = model(xb, yb)
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+        loss_node.backward()
         optimizer.step()
 
 except KeyboardInterrupt:
