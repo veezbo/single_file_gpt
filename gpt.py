@@ -94,12 +94,19 @@ class GPTLanguageModel(nn.Module):
         # targets (B, T)
         B, T = idx.shape
 
+        # Look up token and positional embeddings
         token_embedding = self.token_embedding_table(idx)  # (B, T, C)
         positional_embedding = self.pos_embedding_table(torch.arange(T, device=DEVICE))  # (T, C)
-        embedding = token_embedding + positional_embedding  # (B, T, C) + (T, C) broadcast
-        x = self.blocks(embedding)  # [(B, T, C) -> (B, T, C)] x NUM_TRANSFORMER_BLOCKS
-        x = self.layer_norm_final(x)  # (B, T, C) @ (C, C) -> (B, T, C)  NOTE: Feed-forward is done separately for each token]: 
-        logits = self.linear_model_head(x)  # (B, T, VOCAB_SIZE)
+
+        # Add token and positional embeddings for the input embedding to the transformer stack
+        input_embedding = token_embedding + positional_embedding  # (B, T, C) + (T, C) broadcast
+
+        # Pass the input embedding through the transformer stack with a final layer norm
+        output_embedding = self.blocks(input_embedding)  # [(B, T, C) -> (B, T, C)] x NUM_TRANSFORMER_BLOCKS
+        output_embedding = self.layer_norm_final(output_embedding)  # (B, T, C) @ (C, C) -> (B, T, C)  NOTE: Feed-forward is done separately for each token]:
+
+        # Project back to vocabulary space
+        logits = self.linear_model_head(output_embedding)  # (B, T, VOCAB_SIZE)
 
         if targets is None:
             loss = None
