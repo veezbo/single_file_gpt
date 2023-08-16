@@ -9,6 +9,11 @@ Optimized for readability and learnability.
 - comments for learnings and common errors
 - working code that trains on text and generates text like it
 
+## demo
+We train a character-level GPT on a small corpus of Shakespearian English from plays.
+
+After training, the same model is used to generate similar text, especially reproducing the style and syntax of the input.
+
 ## dependencies
 ```
 python >= 3.10
