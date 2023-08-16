@@ -1,5 +1,7 @@
 # single_file_gpt
-A character-level GPT from scratch in a single file. Optimized for readability and learnability.
+A character-level GPT from scratch in a single file [gpt.py](https://github.com/veezbo/single_file_gpt/blob/main/gpt.py). 
+
+Optimized for readability and learnability.
 
 ## features
 - single file
