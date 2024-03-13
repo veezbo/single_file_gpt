@@ -36,6 +36,23 @@ pip install -r requirements.txt
 python gpt.py
 ```
 
+## typing rundown
+This project uses [jaxtyping](https://github.com/patrick-kidger/jaxtyping) for type annotations and runtime type checking.
+
+This is what the type annotations look like:
+```python
+from torch import Tensor
+from jaxtyping import Float, Int
+
+def func(x: Float[Tensor, "A B C"]) -> Int[Tensor, ""]:
+    return x.shape[0]
+
+Float[Tensor, "A B C"]  # float tensor with shape (A, B, C)
+Int[Tensor, ""]  # int scalar (0-dim) tensor
+func # function that takes in a float tensor with shape (A, B, C) and returns an int scalar tensor
+```
+
+
 ## contributing
 All contributions in the form of confusions, concerns, suggestions, or improvements are welcome!
 
