@@ -36,7 +36,7 @@ pip install -r requirements.txt
 python gpt.py
 ```
 
-## typing rundown
+## typing
 This project uses [jaxtyping](https://github.com/patrick-kidger/jaxtyping) for type annotations and runtime type checking.
 
 This is what the type annotations look like:
