@@ -7,6 +7,7 @@ Optimized for readability and learnability.
 - single file
 - as readable as possible
 - comments for learnings and common errors
+- [type annotations](https://github.com/patrick-kidger/jaxtyping) with runtime type checking
 - working code that trains on text and generates text like it
 
 ## demo
@@ -17,13 +18,17 @@ After training, the same model is used to generate similar text, especially repr
 ## dependencies
 ```
 python >= 3.10
+```
+```
 torch >= 2.0
+jaxtyping==0.2.28
+beartype>=0.15.0
 ```
 
 ## install
 
 ```
-pip install torch
+pip install -r requirements.txt
 ```
 
 ## run
@@ -33,6 +38,9 @@ python gpt.py
 
 ## contributing
 All contributions in the form of confusions, concerns, suggestions, or improvements are welcome!
+
+## future
+- include type annotations for all variables within functions too when this is well-supported by jaxtyping, see this [issue](https://github.com/patrick-kidger/jaxtyping/issues/153)
 
 ## acknowledgements
 This repo is heavily influenced by Andrej Karpathy's [nanogpt](https://github.com/karpathy/nanoGPT/tree/master)

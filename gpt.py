@@ -1,4 +1,3 @@
-
 import os
 import urllib.request
 import torch
@@ -6,18 +5,19 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch import Tensor
 from typing import Dict, Optional, Tuple
+from jaxtyping import Float, Int, install_import_hook
 
 
 # Hyperparameters
+BATCH_SIZE = 12  # == <BATCH>:  how many independent sequences will we process in parallel?
+BLOCK_SIZE = 64  # == <TOKEN>:  what is the maximum context length for predictions?
+EMBEDDING_DIM = 128  # == <CHANNEL>:  how many features/dimensions will we use to represent each token?
 SEED = 1337
-BATCH_SIZE = 12  # how many independent sequences will we process in parallel?
-BLOCK_SIZE = 64  # what is the maximum context length for predictions?
 MAX_ITERS = 5000
 EVAL_INTERVAL = MAX_ITERS / 10
 LEARNING_RATE = 3e-4
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 EVAL_ITERS = 200
-EMBEDDING_DIM = 128
 NUM_HEADS = 4
 NUM_TRANSFORMER_BLOCKS = 4
 DROPOUT = 0.20
@@ -35,13 +35,13 @@ with open('input.txt', 'r', encoding='utf-8') as f:
 
 # All the unique characters that occur in this text
 chars = sorted(list(set(text)))
-VOCAB_SIZE = len(chars)
+VOCAB_SIZE = len(chars)  # == <VOCAB>:  the number of unique characters in the text i.e. the vocabulary size
 
 # Create a mapping from characters to integers
 stoi = {ch: i for i, ch in enumerate(chars)}
 itos = {i: ch for i, ch in enumerate(chars)}
 ENCODER = lambda s: [stoi[c] for c in s]  # encoder: take a string, output a list of integers
-DECODER = lambda l: ''.join([itos[i] for i in l])  # decoder: take a list of integers, output a string
+DECODER = lambda li: ''.join([itos[i] for i in li])  # decoder: take a list of integers, output a string
 
 # Train and test splits
 data = torch.tensor(ENCODER(text), dtype=torch.long)
@@ -50,7 +50,7 @@ train_data = data[:train_index]
 val_data = data[train_index:]
 
 
-def get_batch(split: str) -> Tuple[Tensor, Tensor]:
+def get_batch(split: str) -> Tuple[Int[Tensor, "BATCH TOKEN"], Int[Tensor, "BATCH TOKEN"]]:
     # Generate a small batch of data of inputs x and targets y
     data_to_sample = train_data if split == 'train' else val_data
     ix = torch.randint(len(data_to_sample) - BLOCK_SIZE, (BATCH_SIZE,))
@@ -61,7 +61,7 @@ def get_batch(split: str) -> Tuple[Tensor, Tensor]:
 
 
 @torch.no_grad()
-def estimate_loss() -> Dict[str, Tensor]:
+def estimate_loss() -> Dict[str, Float[Tensor, ""]]:
     out = {}
     model.eval()
     for split in ['train', 'val']:
@@ -89,9 +89,11 @@ class GPTLanguageModel(nn.Module):
         self.layer_norm_final = nn.LayerNorm(EMBEDDING_DIM)
         self.linear_model_head = nn.Linear(EMBEDDING_DIM, VOCAB_SIZE)
 
-    def forward(self, idx: Tensor, targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
-        # idx (B, T)
-        # targets (B, T)
+    def forward(
+        self,
+        idx: Int[Tensor, "BATCH TOKEN"],
+        targets: Optional[Int[Tensor, "BATCH TOKEN"]] = None
+    ) -> Tuple[Optional[Float[Tensor, "BATCH TOKEN VOCAB"]], Optional[Float[Tensor, ""]]]:
         B, T = idx.shape
 
         # Look up token and positional embeddings
@@ -112,13 +114,15 @@ class GPTLanguageModel(nn.Module):
             loss = None
         else:
             B, T, _ = logits.shape
+            # Before calculating cross entropy loss, shuffle logits and targets to be 2D
             logits = logits.view(B*T, VOCAB_SIZE)
             targets = targets.view(B*T)
             loss = F.cross_entropy(logits, targets)
+            logits = None
 
         return logits, loss
 
-    def generate(self, idx: Tensor, max_new_tokens: int) -> Tensor:
+    def generate(self, idx: Int[Tensor, "BATCH TOKEN"], max_new_tokens: int) -> Int[Tensor, "BATCH TOKEN+{max_new_tokens}"]:
         # idx (B, T): array of indices in the current context so far
 
         for _ in range(max_new_tokens):
@@ -148,6 +152,7 @@ class Head(nn.Module):
 
     def __init__(self, head_size: int):
         super().__init__()
+        self.head_size = head_size
         self.key = nn.Linear(EMBEDDING_DIM, head_size, bias=False)
         self.query = nn.Linear(EMBEDDING_DIM, head_size, bias=False)
         self.value = nn.Linear(EMBEDDING_DIM, head_size, bias=False)
@@ -157,10 +162,7 @@ class Head(nn.Module):
         self.register_buffer('tril', torch.tril(torch.ones(BLOCK_SIZE, BLOCK_SIZE)))
         self.dropout = nn.Dropout(DROPOUT)
 
-    def forward(self, x: Tensor) -> Tensor:
-        # x: (B, T, C)
-        # output: (B, T, HS)
-        
+    def forward(self, x: Float[Tensor, "BATCH TOKEN CHANNEL"]) -> Float[Tensor, "BATCH TOKEN {self.head_size}"]:
         B, T, C = x.shape
         k = self.key(x)  # (B, T, HS)
         q = self.query(x)  # (B, T, HS)
@@ -174,6 +176,7 @@ class Head(nn.Module):
         # Perform the weighted aggregation of the values
         v = self.value(x)  # (B, T, HS)
         out = wei @ v  # (B, T, T) @ (B, T, HS) -> (B, T, HS)
+
         return out
 
 
@@ -186,9 +189,8 @@ class MultiHead(nn.Module):
         self.projection = nn.Linear(EMBEDDING_DIM, EMBEDDING_DIM)
         self.dropout = nn.Dropout(DROPOUT)
 
-    def forward(self, x: Tensor) -> Tensor:
-        # B, T, C = x.shape
-        out = torch.cat([h(x) for h in self.heads], dim=-1)  # (B, T, HS * num_heads = C)
+    def forward(self, x: Float[Tensor, "BATCH TOKEN CHANNEL"]) -> Float[Tensor, "BATCH TOKEN CHANNEL"]:
+        out = torch.cat([head(x) for head in self.heads], dim=-1)  # (B, T, HS * num_heads = C)
         out = self.dropout(self.projection(out))  # (B, T, C) -> (B, T, C)
         return out
     
@@ -204,7 +206,7 @@ class FeedForward(nn.Module):
             nn.Dropout(DROPOUT),
         )
     
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Float[Tensor, "BATCH TOKEN CHANNEL"]) -> Float[Tensor, "BATCH TOKEN CHANNEL"]:
         return self.network(x)
     
 
@@ -220,7 +222,7 @@ class TransformerBlock(nn.Module):
         self.layer_norm_2 = nn.LayerNorm(embedding_dim)
         self.feed_forward = FeedForward(embedding_dim)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Float[Tensor, "BATCH TOKEN CHANNEL"]) -> Float[Tensor, "BATCH TOKEN CHANNEL"]:
         # We add to x itself to do the "residual" or "skip connection"
         # NOTE: This lets us propagate gradients due to supervision all the way to the early part of the network
         # GRADIENT SUPERHIGHWAY
@@ -228,6 +230,10 @@ class TransformerBlock(nn.Module):
         x = x + self.feed_forward(self.layer_norm_2(x))
         return x
 
+
+# Enable runtime type checking on all functions
+with install_import_hook("gpt", "beartype.beartype"):
+    from gpt import *
 
 # Initialize the model
 model = GPTLanguageModel()
