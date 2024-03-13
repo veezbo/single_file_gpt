@@ -49,7 +49,7 @@ def func(x: Float[Tensor, "A B C"]) -> Int[Tensor, ""]:
 
 Float[Tensor, "A B C"]  # float tensor with shape (A, B, C)
 Int[Tensor, ""]  # int scalar (0-dim) tensor
-func # function that takes in a float tensor with shape (A, B, C) and returns an int scalar tensor
+func  # function that takes in a float tensor with shape (A, B, C) and returns an int scalar tensor
 ```
 
 
