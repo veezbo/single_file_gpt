@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch import Tensor
-from typing import Dict, Optional, Tuple
-from jaxtyping import Float, Int, install_import_hook
+from typing import Callable, Dict, Optional, Tuple
+from jaxtyping import Float, Int
 
 
 # Hyperparameters
@@ -14,7 +14,7 @@ BLOCK_SIZE = 64  # == <TOKEN>:  what is the maximum context length for predictio
 EMBEDDING_DIM = 128  # == <CHANNEL>:  how many features/dimensions will we use to represent each token?
 SEED = 1337
 MAX_ITERS = 5000
-EVAL_INTERVAL = MAX_ITERS / 10
+EVAL_INTERVAL = MAX_ITERS // 10
 LEARNING_RATE = 3e-4
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 EVAL_ITERS = 200
@@ -22,35 +22,52 @@ NUM_HEADS = 4
 NUM_TRANSFORMER_BLOCKS = 4
 DROPOUT = 0.20
 NUM_GENERATE_TOKENS = 5000
+VOCAB_SIZE = 0  # == <VOCAB>:  set after reading the training text
 # ------------
-torch.manual_seed(SEED)
-
-# Load input data (currently Shakespeare data from Karpathy's repo)
-if not os.path.exists('input.txt'):
-    print("downloading data file from github")
-    url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
-    urllib.request.urlretrieve(url, 'input.txt')
-with open('input.txt', 'r', encoding='utf-8') as f:
-    text = f.read()
-
-# All the unique characters that occur in this text
-chars = sorted(list(set(text)))
-VOCAB_SIZE = len(chars)  # == <VOCAB>:  the number of unique characters in the text i.e. the vocabulary size
-
-# Create a mapping from characters to integers
-stoi = {ch: i for i, ch in enumerate(chars)}
-itos = {i: ch for i, ch in enumerate(chars)}
-ENCODER = lambda s: [stoi[c] for c in s]  # encoder: take a string, output a list of integers
-DECODER = lambda li: ''.join([itos[i] for i in li])  # decoder: take a list of integers, output a string
-
-# Train and test splits
-data = torch.tensor(ENCODER(text), dtype=torch.long)
-train_index = int(0.9*len(data))  # first 90% will be train dataset, rest val
-train_data = data[:train_index]
-val_data = data[train_index:]
 
 
-def get_batch(split: str) -> Tuple[Int[Tensor, "BATCH TOKEN"], Int[Tensor, "BATCH TOKEN"]]:
+def load_text() -> str:
+    # Load input data (currently Shakespeare data from Karpathy's repo)
+    if not os.path.exists('input.txt'):
+        print("downloading data file from github")
+        url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
+        urllib.request.urlretrieve(url, 'input.txt')
+    with open('input.txt', 'r', encoding='utf-8') as f:
+        return f.read()
+
+
+def prepare_data() -> Tuple[
+    Int[Tensor, "TRAIN_TOKEN"],
+    Int[Tensor, "VAL_TOKEN"],
+    Callable[[list[int]], str],
+]:
+    global VOCAB_SIZE
+    text = load_text()
+
+    # All the unique characters that occur in this text
+    chars = sorted(list(set(text)))
+    VOCAB_SIZE = len(chars)  # == <VOCAB>:  the number of unique characters in the text i.e. the vocabulary size
+
+    # Create a mapping from characters to integers
+    stoi = {ch: i for i, ch in enumerate(chars)}
+    itos = {i: ch for i, ch in enumerate(chars)}
+    encoder = lambda s: [stoi[c] for c in s]  # encoder: take a string, output a list of integers
+    decoder = lambda li: ''.join([itos[i] for i in li])  # decoder: take a list of integers, output a string
+
+    # Train and test splits
+    data = torch.tensor(encoder(text), dtype=torch.long)
+    train_index = int(0.9*len(data))  # first 90% will be train dataset, rest val
+    train_data = data[:train_index]
+    val_data = data[train_index:]
+
+    return train_data, val_data, decoder
+
+
+def get_batch(
+    split: str,
+    train_data: Int[Tensor, "TRAIN_TOKEN"],
+    val_data: Int[Tensor, "VAL_TOKEN"],
+) -> Tuple[Int[Tensor, "BATCH TOKEN"], Int[Tensor, "BATCH TOKEN"]]:
     # Generate a small batch of data of inputs x and targets y
     data_to_sample = train_data if split == 'train' else val_data
     ix = torch.randint(len(data_to_sample) - BLOCK_SIZE, (BATCH_SIZE,))
@@ -61,13 +78,17 @@ def get_batch(split: str) -> Tuple[Int[Tensor, "BATCH TOKEN"], Int[Tensor, "BATC
 
 
 @torch.no_grad()
-def estimate_loss() -> Dict[str, Float[Tensor, ""]]:
+def estimate_loss(
+    model: "GPTLanguageModel",
+    train_data: Int[Tensor, "TRAIN_TOKEN"],
+    val_data: Int[Tensor, "VAL_TOKEN"],
+) -> Dict[str, Float[Tensor, ""]]:
     out = {}
     model.eval()
     for split in ['train', 'val']:
         calculated_losses = torch.zeros(EVAL_ITERS)
         for k in range(EVAL_ITERS):
-            X, Y = get_batch(split)
+            X, Y = get_batch(split, train_data, val_data)
             _, loss_node_i = model(X, Y)
             calculated_losses[k] = loss_node_i.item()
         estimated_split_loss = calculated_losses.mean()
@@ -231,40 +252,44 @@ class TransformerBlock(nn.Module):
         return x
 
 
-# Enable runtime type checking on all functions
-with install_import_hook("gpt", "beartype.beartype"):
-    from gpt import *
+def main():
+    torch.manual_seed(SEED)
+    train_data, val_data, decoder = prepare_data()
 
-# Initialize the model
-model = GPTLanguageModel()
-m = model.to(DEVICE)
-print(f"Number of model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+    # Initialize the model
+    model = GPTLanguageModel()
+    m = model.to(DEVICE)
+    print(f"Number of model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
-# Create a PyTorch optimizer
-optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    # Create a PyTorch optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
-# Training Loop
-iteration = 0
-try:
-    for iteration in range(MAX_ITERS):
-        # Every once in a while evaluate the loss on train and val sets
-        if iteration % EVAL_INTERVAL == 0 or iteration == MAX_ITERS - 1:
-            losses = estimate_loss()
-            print(f"step {iteration}/{MAX_ITERS}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    # Training Loop
+    iteration = 0
+    try:
+        for iteration in range(MAX_ITERS):
+            # Every once in a while evaluate the loss on train and val sets
+            if iteration % EVAL_INTERVAL == 0 or iteration == MAX_ITERS - 1:
+                losses = estimate_loss(model, train_data, val_data)
+                print(f"step {iteration}/{MAX_ITERS}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
-        # Sample a batch of data
-        xb, yb = get_batch('train')
+            # Sample a batch of data
+            xb, yb = get_batch('train', train_data, val_data)
 
-        # Evaluate the loss
-        _, loss_node = model(xb, yb)
-        optimizer.zero_grad(set_to_none=True)
-        loss_node.backward()
-        optimizer.step()
+            # Evaluate the loss
+            _, loss_node = model(xb, yb)
+            optimizer.zero_grad(set_to_none=True)
+            loss_node.backward()
+            optimizer.step()
 
-except KeyboardInterrupt:
-    print(f"Training was manually killed at iteration: {iteration}")
-    pass
+    except KeyboardInterrupt:
+        print(f"Training was manually killed at iteration: {iteration}")
+        pass
 
-# Generate from the model
-starting_empty_context = torch.zeros((1, 1), dtype=torch.long, device=DEVICE)
-print(DECODER(m.generate(starting_empty_context, max_new_tokens=NUM_GENERATE_TOKENS)[0].tolist()))
+    # Generate from the model
+    starting_empty_context = torch.zeros((1, 1), dtype=torch.long, device=DEVICE)
+    print(decoder(m.generate(starting_empty_context, max_new_tokens=NUM_GENERATE_TOKENS)[0].tolist()))
+
+
+if __name__ == "__main__":
+    main()

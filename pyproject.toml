@@ -1,0 +1,10 @@
+[project]
+name = "single-file-gpt"
+version = "0.1.0"
+description = "A readable character-level GPT from scratch in a single Python file."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "jaxtyping==0.2.28",
+]
