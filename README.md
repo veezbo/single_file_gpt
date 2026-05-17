@@ -7,7 +7,7 @@ Optimized for readability and learnability.
 - single file
 - as readable as possible
 - comments for learnings and common errors
-- [type annotations](https://github.com/patrick-kidger/jaxtyping) with runtime type checking
+- [type annotations](https://github.com/patrick-kidger/jaxtyping)
 - working code that trains on text and generates text like it
 
 ## demo
@@ -22,22 +22,28 @@ python >= 3.10
 ```
 torch >= 2.0
 jaxtyping==0.2.28
-beartype>=0.15.0
 ```
 
 ## install
 
 ```
-pip install -r requirements.txt
+uv sync
 ```
 
 ## run
 ```
-python gpt.py
+uv run python gpt.py
+```
+
+Running `gpt.py` trains the model, prints periodic train/validation loss estimates, and then generates text from the trained model. Runtime depends heavily on whether PyTorch is using a GPU or CPU.
+
+The module can also be imported without starting training:
+```python
+from gpt import GPTLanguageModel
 ```
 
 ## typing
-This project uses [jaxtyping](https://github.com/patrick-kidger/jaxtyping) for type annotations and runtime type checking.
+This project uses [jaxtyping](https://github.com/patrick-kidger/jaxtyping) for type annotations.
 
 This is what the type annotations look like:
 ```python
