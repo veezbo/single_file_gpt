@@ -22,6 +22,7 @@ NUM_HEADS = 4
 NUM_TRANSFORMER_BLOCKS = 4
 DROPOUT = 0.20
 NUM_GENERATE_TOKENS = 5000
+VOCAB_SIZE = 0  # == <VOCAB>:  set after reading the training text
 # ------------
 
 
@@ -38,14 +39,14 @@ def load_text() -> str:
 def prepare_data() -> Tuple[
     Int[Tensor, "TRAIN_TOKEN"],
     Int[Tensor, "VAL_TOKEN"],
-    int,
     Callable[[list[int]], str],
 ]:
+    global VOCAB_SIZE
     text = load_text()
 
     # All the unique characters that occur in this text
     chars = sorted(list(set(text)))
-    vocab_size = len(chars)  # == <VOCAB>:  the number of unique characters in the text i.e. the vocabulary size
+    VOCAB_SIZE = len(chars)  # == <VOCAB>:  the number of unique characters in the text i.e. the vocabulary size
 
     # Create a mapping from characters to integers
     stoi = {ch: i for i, ch in enumerate(chars)}
@@ -59,7 +60,7 @@ def prepare_data() -> Tuple[
     train_data = data[:train_index]
     val_data = data[train_index:]
 
-    return train_data, val_data, vocab_size, decoder
+    return train_data, val_data, decoder
 
 
 def get_batch(
@@ -99,16 +100,15 @@ def estimate_loss(
 class GPTLanguageModel(nn.Module):
     """ A GPT language model from scratch """
 
-    def __init__(self, vocab_size: int):
+    def __init__(self):
         super().__init__()
-        self.vocab_size = vocab_size
         # Each token directly reads off the embeddings for the next token from lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, EMBEDDING_DIM)
+        self.token_embedding_table = nn.Embedding(VOCAB_SIZE, EMBEDDING_DIM)
         # Positional embeddings are learnable parameters here for simplicity
         self.pos_embedding_table = nn.Embedding(BLOCK_SIZE, EMBEDDING_DIM)
         self.blocks = nn.Sequential(*[TransformerBlock(EMBEDDING_DIM, NUM_HEADS) for _ in range(NUM_TRANSFORMER_BLOCKS)])
         self.layer_norm_final = nn.LayerNorm(EMBEDDING_DIM)
-        self.linear_model_head = nn.Linear(EMBEDDING_DIM, vocab_size)
+        self.linear_model_head = nn.Linear(EMBEDDING_DIM, VOCAB_SIZE)
 
     def forward(
         self,
@@ -136,7 +136,7 @@ class GPTLanguageModel(nn.Module):
         else:
             B, T, _ = logits.shape
             # Before calculating cross entropy loss, shuffle logits and targets to be 2D
-            logits = logits.view(B*T, self.vocab_size)
+            logits = logits.view(B*T, VOCAB_SIZE)
             targets = targets.view(B*T)
             loss = F.cross_entropy(logits, targets)
             logits = None
@@ -254,10 +254,10 @@ class TransformerBlock(nn.Module):
 
 def main():
     torch.manual_seed(SEED)
-    train_data, val_data, vocab_size, decoder = prepare_data()
+    train_data, val_data, decoder = prepare_data()
 
     # Initialize the model
-    model = GPTLanguageModel(vocab_size)
+    model = GPTLanguageModel()
     m = model.to(DEVICE)
     print(f"Number of model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
